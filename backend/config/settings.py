@@ -2,7 +2,6 @@
 Application configuration using Pydantic Settings.
 """
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -20,13 +19,7 @@ class Settings(BaseSettings):
     zhipu_api_key: str  # Required - must be in .env
     glm_model: str  # Required - must be in .env (e.g., "ilmu-glm-5.1" or "glm-4-plus")
     glm_base_url: str  # Required - must be in .env (e.g., "https://api.ilmu.ai/anthropic")
-    
-    # Google APIs
-    google_client_id: Optional[str] = None
-    google_client_secret: Optional[str] = None
-    google_redirect_uri: Optional[str] = None
-    google_credentials_path: str = "./google_credentials.json"  # Service account credentials
-    
+
     # Security
     secret_key: str
     algorithm: str = "HS256"

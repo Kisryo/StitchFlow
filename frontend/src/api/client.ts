@@ -114,6 +114,23 @@ export interface AuditEntry {
   hash: string
 }
 
+export interface GeneratedDocument {
+  title: string
+  executive_summary: string
+  classification: string
+  key_findings: string[]
+  issues_resolved?: string[]
+  recommendations_summary: string[]
+  draft_email: { subject: string; body: string }
+  next_steps: string[]
+}
+
+export interface ExecutionResultsResponse {
+  workflow_id: string
+  state: string
+  document: GeneratedDocument
+}
+
 export interface ListWorkflowsResponse {
   workflows: WorkflowSummary[]
   total: number
@@ -236,6 +253,23 @@ export const api = {
       `/workflows/${id}/audit${qs ? `?${qs}` : ''}`,
     )
   },
+
+  execute: (id: string) =>
+    request<{
+      workflow_id: string
+      state: string
+      overall_success: boolean
+      total_tasks: number
+      successful_tasks: number
+      failed_tasks: number
+      task_results: { task_id: string; task_type: string; success: boolean; result_data: Record<string, unknown>; error: string | null; execution_time: number }[]
+    }>(
+      `/workflows/${id}/execute`,
+      { method: 'POST' },
+    ),
+
+  getExecutionResults: (id: string) =>
+    request<ExecutionResultsResponse>(`/workflows/${id}/execute`, { method: 'GET' }),
 
   getDashboardStats: () =>
     request<DashboardStats>('/dashboard/stats'),

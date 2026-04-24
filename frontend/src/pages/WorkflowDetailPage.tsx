@@ -7,6 +7,7 @@ import {
   type ReasoningResponse,
   type PolicyScreeningResponse,
   type RedactionResponse,
+  type GeneratedDocument,
 } from '@/api/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -69,6 +70,7 @@ export default function WorkflowDetailPage() {
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null)
   const [policy, setPolicy] = useState<PolicyScreeningResponse | null>(null)
   const [redaction, setRedaction] = useState<RedactionResponse | null>(null)
+  const [execDocument, setExecDocument] = useState<GeneratedDocument | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
@@ -116,6 +118,18 @@ export default function WorkflowDetailPage() {
           }
         } catch (err) {
           console.log('No redaction results available yet')
+        }
+      }
+
+      // Auto-fetch execution results if workflow is completed
+      if (wf.state === 'Completed' || wf.state === 'Executed') {
+        try {
+          const execResult = await api.getExecutionResults(workflowId)
+          if (!abortController.signal.aborted) {
+            setExecDocument(execResult.document)
+          }
+        } catch (err) {
+          console.log('No execution results available yet')
         }
       }
 
@@ -168,13 +182,13 @@ export default function WorkflowDetailPage() {
     }
   }, [load])
 
-  async function handleRunStep(step: 'redact' | 'reason' | 'screen' | 'run') {
+  async function handleRunStep(step: 'redact' | 'reason' | 'screen' | 'execute') {
     if (!workflowId) return
     setActionLoading(true)
-    setError(null)  // Clear any previous errors
-    
+    setError(null)
+
     let isCancelled = false
-    
+
     try {
       if (step === 'redact') {
         const result = await api.redact(workflowId)
@@ -182,7 +196,6 @@ export default function WorkflowDetailPage() {
           setRedaction(result)
         }
       } else if (step === 'reason') {
-        // Show a message that this might take a while
         console.log('[Frontend] Running AI reasoning - this may take up to 2 minutes...')
         const result = await api.reason(workflowId)
         if (!isCancelled) {
@@ -193,9 +206,15 @@ export default function WorkflowDetailPage() {
         if (!isCancelled) {
           setPolicy(result)
         }
-      } else if (step === 'run') {
-        console.log('[Frontend] Running full pipeline - this may take several minutes...')
-        await api.runWorkflow(workflowId)
+      } else if (step === 'execute') {
+        console.log('[Frontend] Executing approved tasks...')
+        await api.execute(workflowId)
+        if (!isCancelled) {
+          try {
+            const execResult = await api.getExecutionResults(workflowId)
+            setExecDocument(execResult.document)
+          } catch { /* ignore */ }
+        }
       }
       
       if (!isCancelled) {
@@ -355,13 +374,10 @@ export default function WorkflowDetailPage() {
                 </Button>
               )}
               {workflow.state === 'Approved' && (
-                <Button onClick={() => handleRunStep('run')} disabled={actionLoading}>
-                  Execute Tasks
+                <Button onClick={() => handleRunStep('execute')} disabled={actionLoading}>
+                  {actionLoading ? 'Executing Tasks...' : 'Execute Tasks'}
                 </Button>
               )}
-              <Button variant="outline" onClick={() => handleRunStep('run')} disabled={actionLoading}>
-                {actionLoading ? 'Running Pipeline...' : 'Run Full Pipeline'}
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -433,6 +449,72 @@ export default function WorkflowDetailPage() {
             metadata={workflow.metadata}
             onActionComplete={load}
           />
+        )}
+
+        {/* Execution Results (Completed/Executed state) */}
+        {execDocument && (
+          <Card className="border-green-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Badge className="bg-green-100 text-green-800">Execution Complete</Badge>
+                <span>{execDocument.title}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">{execDocument.executive_summary}</p>
+
+              <div>
+                <h3 className="text-sm font-semibold mb-1">Classification</h3>
+                <p className="text-sm text-muted-foreground">{execDocument.classification}</p>
+              </div>
+
+              {execDocument.key_findings.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Key Findings</h3>
+                  <ul className="list-disc list-inside text-sm space-y-0.5">
+                    {execDocument.key_findings.map((f, i) => <li key={i}>{cleanDisplayText(f)}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {execDocument.issues_resolved && execDocument.issues_resolved.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Issues Resolved</h3>
+                  <ul className="list-disc list-inside text-sm space-y-0.5">
+                    {execDocument.issues_resolved.map((f, i) => <li key={i}>{cleanDisplayText(f)}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {execDocument.recommendations_summary.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Recommendations</h3>
+                  <ul className="list-disc list-inside text-sm space-y-0.5">
+                    {execDocument.recommendations_summary.map((r, i) => <li key={i}>{cleanDisplayText(r)}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {execDocument.draft_email && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Draft Email</h3>
+                  <div className="border rounded-lg p-3 bg-slate-50 space-y-1">
+                    <p className="text-sm font-medium">Subject: {execDocument.draft_email.subject}</p>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{execDocument.draft_email.body}</p>
+                  </div>
+                </div>
+              )}
+
+              {execDocument.next_steps.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Next Steps</h3>
+                  <ul className="list-disc list-inside text-sm space-y-0.5">
+                    {execDocument.next_steps.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Reasoning / Policy / Audit Tabs */}

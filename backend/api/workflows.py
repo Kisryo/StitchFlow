@@ -672,59 +672,152 @@ async def get_policy_screening_results(
 
 
 
-@router.post("/{workflow_id}/run")
-async def run_automated_workflow(
+@router.post("/{workflow_id}/execute")
+async def execute_approved_tasks(
     workflow_id: str,
     db: Session = Depends(get_db)
 ):
     """
-    Run the complete automated workflow using LangGraph.
-    
-    This orchestrates all steps: ingest → redact → reason → screen_policy
-    and pauses for human input when needed.
-    
+    Execute approved recommendations for a workflow.
+
+    This takes the approved recommendations and runs them through
+    the task orchestrator (sync to sheets, create Gmail draft, etc.).
+
     Args:
         workflow_id: Workflow identifier
         db: Database session
-        
+
     Returns:
-        Workflow execution result
+        Task execution results
     """
+    from database.models import ReasoningResultDB
+    from models import ReasoningResult, Classification, Entity, Ambiguity, Conflict, Recommendation as RecModel
+    from components.task_orchestrator import orchestrate_tasks
+
     # Verify workflow exists
     workflow = get_workflow(db, workflow_id)
     if not workflow:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
-    
-    if not workflow.document_path:
-        raise HTTPException(
-            status_code=400,
-            detail="Workflow has no document. Upload a document first."
-        )
-    
-    # Extract file type from document path
-    import os
-    file_ext = os.path.splitext(workflow.document_path)[1].lower().lstrip('.')
-    
+
+    # Get approved recommendation IDs from metadata
+    metadata = workflow.workflow_metadata or {}
+    approved_ids = metadata.get("approved_recommendations", [])
+
+    # Get reasoning results
+    db_reasoning = (
+        db.query(ReasoningResultDB)
+        .filter(ReasoningResultDB.workflow_id == workflow_id)
+        .order_by(ReasoningResultDB.created_at.desc())
+        .first()
+    )
+
+    if not db_reasoning:
+        raise HTTPException(status_code=400, detail="No reasoning results found. Run reasoning first.")
+
+    # Convert to Pydantic models
+    conflicts_data = []
+    for conflict in db_reasoning.conflicts:
+        conflict_dict = dict(conflict) if not isinstance(conflict, dict) else conflict
+        if 'conflicting_entities' in conflict_dict and conflict_dict['conflicting_entities']:
+            conflict_dict['conflicting_entities'] = [
+                dict(e) if hasattr(e, '__dict__') else e
+                for e in conflict_dict['conflicting_entities']
+            ]
+        conflicts_data.append(conflict_dict)
+
+    reasoning_result = ReasoningResult(
+        workflow_id=db_reasoning.workflow_id,
+        classification=Classification(**db_reasoning.classification),
+        entities=[Entity(**e) for e in db_reasoning.entities],
+        ambiguities=[Ambiguity(**a) for a in db_reasoning.ambiguities],
+        conflicts=[Conflict(**c) for c in conflicts_data],
+        recommendations=[RecModel(**r) for r in db_reasoning.recommendations],
+        reasoning_time=db_reasoning.reasoning_time
+    )
+
+    # Filter to approved recommendations only (or all if none specified)
+    if approved_ids:
+        recommendations = [r for r in reasoning_result.recommendations if r.recommendation_id in approved_ids]
+    else:
+        recommendations = reasoning_result.recommendations
+
+    if not recommendations:
+        raise HTTPException(status_code=400, detail="No approved recommendations to execute.")
+
+    # Execute tasks
     try:
-        from workflows.workflow_engine import run_workflow
-        
-        result = await run_workflow(
+        result = await orchestrate_tasks(workflow_id, recommendations, db)
+
+        # Update workflow state based on results
+        if result.overall_success:
+            workflow.state = WorkflowState.COMPLETED.value
+        else:
+            workflow.state = WorkflowState.ESCALATED.value
+        workflow.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(workflow)
+
+        log_audit_entry(
+            db=db,
             workflow_id=workflow_id,
-            document_path=workflow.document_path,
-            file_type=file_ext,
-            db=db
+            action_type="state_transition",
+            actor="system",
+            details={
+                "from_state": "Approved",
+                "to_state": workflow.state,
+                "reason": f"Task execution {'succeeded' if result.overall_success else 'had failures'}. "
+                          f"{len(result.task_results) - len(result.failed_tasks)} succeeded, {len(result.failed_tasks)} failed.",
+                "task_results": [
+                    {"id": t.task_id, "type": t.task_type, "success": t.success, "error": t.error}
+                    for t in result.task_results
+                ]
+            }
         )
-        
+
         return {
-            "workflow_id": result["workflow_id"],
-            "final_state": result["final_state"],
-            "requires_human_input": result["requires_human_input"],
-            "human_input_type": result.get("human_input_type"),
-            "error": result.get("error"),
-            "execution_log": result.get("messages", [])
+            "workflow_id": workflow_id,
+            "state": workflow.state,
+            "overall_success": result.overall_success,
+            "total_tasks": len(result.task_results),
+            "successful_tasks": len(result.task_results) - len(result.failed_tasks),
+            "failed_tasks": len(result.failed_tasks),
+            "task_results": [
+                {
+                    "task_id": t.task_id,
+                    "task_type": t.task_type,
+                    "success": t.success,
+                    "result_data": t.result_data,
+                    "error": t.error,
+                    "execution_time": t.execution_time
+                }
+                for t in result.task_results
+            ]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Workflow execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Task execution failed: {str(e)}")
+
+
+@router.get("/{workflow_id}/execute")
+async def get_execution_results(
+    workflow_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get the generated document from task execution."""
+    workflow = get_workflow(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+
+    metadata = workflow.workflow_metadata or {}
+    generated_document = metadata.get("generated_document")
+
+    if not generated_document:
+        raise HTTPException(status_code=404, detail="No execution results found for this workflow")
+
+    return {
+        "workflow_id": workflow_id,
+        "state": workflow.state,
+        "document": generated_document,
+    }
 
 
 # ============================================================================
