@@ -113,7 +113,9 @@ async def classify_document(text: str) -> Classification:
     prompt = f"""Analyze this document and classify it.
 
 Document:
-{text[:2000]}  # Limit to first 2000 chars for classification
+{text[:2000]}
+
+Note: The document contains privacy-redacted tokens like [NAME_1], [EMAIL_1], [PHONE_1], [ADDRESS_1], [SSN_1]. When referencing these in your output, use human-readable labels like "Person 1", "Email 1", "Phone 1" instead of the raw token syntax.
 
 Determine:
 1. Document type (e.g., event_request, terms_conditions, inquiry, contract, email, form, report)
@@ -201,8 +203,10 @@ async def extract_entities(text: str, document_type: str, clarifications: Option
     prompt = f"""Extract key entities from this {document_type} document.
 
 Document:
-{text[:3000]}  # Limit to first 3000 chars
+{text[:3000]}
 {clarifications_context}
+Note: The document contains privacy-redacted tokens like [NAME_1], [EMAIL_1], [PHONE_1], [ADDRESS_1], [SSN_1]. When referencing these in your output, use human-readable labels like "Person 1", "Email 1", "Phone 1" instead of the raw token syntax.
+
 Extract entities such as:
 - Dates (event dates, deadlines, etc.)
 - People (names, roles)
@@ -308,6 +312,8 @@ Document:
 Extracted entities so far:
 {entities_summary}
 {clarifications_context}
+Note: The document contains privacy-redacted tokens like [NAME_1], [EMAIL_1], [PHONE_1], [ADDRESS_1], [SSN_1]. When referencing these in your output, use human-readable labels like "Person 1", "Email 1", "Phone 1" instead of the raw token syntax. For example, instead of saying "NAME1 is unclear", say "Person 1's role is unclear".
+
 Identify:
 1. Missing required information
 2. Unclear references or vague statements
@@ -378,6 +384,8 @@ Document:
 
 Extracted entities:
 {entities_summary}
+
+Note: The document contains privacy-redacted tokens like [NAME_1], [EMAIL_1], [PHONE_1], [ADDRESS_1], [SSN_1]. When referencing these in your output, use human-readable labels like "Person 1", "Email 1" instead of the raw token syntax. For example, instead of "NAME1 and NAME2 have conflicting dates", say "Person 1 and Person 2 have conflicting dates".
 
 Identify:
 1. Contradictory dates or times
@@ -483,6 +491,8 @@ Ambiguities Found: {len(ambiguities)}
     prompt = f"""Based on this document analysis, recommend appropriate actions.
 
 {context}
+
+Note: When referencing redacted entities like [NAME_1], [EMAIL_1], use human-readable labels like "Person 1", "Email 1" instead of the raw token syntax.
 
 Generate recommendations for:
 1. What should be done with this information (e.g., sync to sheets, create draft email, notify someone)

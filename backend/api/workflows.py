@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 
 from database.base import get_db
-from database.utils import create_workflow, get_workflow, list_workflows
+from database.utils import create_workflow, get_workflow, list_workflows, log_audit_entry
 from models import Workflow, WorkflowState, DocumentMetadata
 from config.settings import settings
 from components.ingestion import ingest_document
@@ -263,11 +263,57 @@ async def redact_pii(
             "state": "Redacted",
             "pii_found": len(result.pii_matches),
             "pii_by_type": pii_by_type,
+            "pii_matches": [
+                {
+                    "pii_type": m.pii_type,
+                    "masked_token": m.masked_token,
+                    "original_value": m.original_value,
+                    "start_pos": m.start_pos,
+                    "end_pos": m.end_pos
+                }
+                for m in result.pii_matches
+            ],
             "redaction_time": result.redaction_time,
             "redacted_text_preview": result.redacted_text[:500] + "..." if len(result.redacted_text) > 500 else result.redacted_text
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PII redaction failed: {str(e)}")
+
+
+@router.get("/{workflow_id}/redact")
+async def get_redaction_results(
+    workflow_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get PII redaction results for a workflow."""
+    workflow = get_workflow(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+
+    if not workflow.token_map:
+        raise HTTPException(status_code=404, detail="No redaction results found for this workflow")
+
+    token_map = workflow.token_map
+    pii_matches = []
+    for masked_token, original_value in token_map.items():
+        pii_type = masked_token.strip("[]").rsplit("_", 1)[0].lower()
+        pii_matches.append({
+            "pii_type": pii_type,
+            "masked_token": masked_token,
+            "original_value": original_value,
+        })
+
+    pii_by_type = {}
+    for m in pii_matches:
+        pii_by_type[m["pii_type"]] = pii_by_type.get(m["pii_type"], 0) + 1
+
+    return {
+        "workflow_id": workflow_id,
+        "state": workflow.state,
+        "pii_found": len(pii_matches),
+        "pii_by_type": pii_by_type,
+        "pii_matches": pii_matches,
+    }
 
 
 @router.post("/{workflow_id}/reason")
@@ -323,9 +369,20 @@ async def run_reasoning(
                 {
                     "type": a.ambiguity_type,
                     "description": a.description,
-                    "question": a.clarification_question
+                    "question": a.clarification_question,
+                    "possible_interpretations": a.possible_interpretations
                 }
                 for a in result.ambiguities
+            ],
+            "conflicts_found": len(result.conflicts),
+            "conflicts": [
+                {
+                    "conflict_type": c.conflict_type,
+                    "description": c.description,
+                    "evidence": c.evidence,
+                    "conflicting_entities": c.conflicting_entities
+                }
+                for c in result.conflicts
             ],
             "recommendations_generated": len(result.recommendations),
             "recommendations": [
@@ -432,6 +489,16 @@ async def get_reasoning_results(
                 "possible_interpretations": a.possible_interpretations
             }
             for a in reasoning_result.ambiguities
+        ],
+        "conflicts_found": len(reasoning_result.conflicts),
+        "conflicts": [
+            {
+                "conflict_type": c.conflict_type,
+                "description": c.description,
+                "evidence": c.evidence,
+                "conflicting_entities": c.conflicting_entities
+            }
+            for c in reasoning_result.conflicts
         ],
         "recommendations_generated": len(reasoning_result.recommendations),
         "recommendations": [
@@ -734,24 +801,35 @@ async def provide_clarification(
         # Store clarifications in workflow metadata
         if not workflow.workflow_metadata:
             workflow.workflow_metadata = {}
-        
+
         workflow.workflow_metadata["clarifications"] = request.clarifications
         workflow.workflow_metadata["clarified_by"] = request.user_id
         workflow.workflow_metadata["clarified_at"] = datetime.utcnow().isoformat()
-        
-        # Update workflow state to trigger re-reasoning
-        workflow.state = WorkflowState.REDACTED.value  # Go back to redacted to re-run reasoning
+
+        # Advance directly to Parsed — no re-running GLM reasoning
+        workflow.state = WorkflowState.PARSED.value
         workflow.updated_at = datetime.utcnow()
-        
         db.commit()
         db.refresh(workflow)
-        
+
+        log_audit_entry(
+            db=db,
+            workflow_id=workflow_id,
+            action_type="state_transition",
+            actor="user",
+            details={
+                "from_state": "NeedsClarification",
+                "to_state": WorkflowState.PARSED.value,
+                "reason": f"User provided {len(request.clarifications)} clarifications. Advancing to policy screening."
+            }
+        )
+
         return {
             "workflow_id": workflow_id,
             "status": "clarification_received",
-            "message": "Clarifications stored. Re-run reasoning to incorporate clarifications.",
+            "message": f"Clarifications received. Workflow advanced to {WorkflowState.PARSED.value}. Ready for policy screening.",
             "clarifications_count": len(request.clarifications),
-            "next_action": "POST /api/v1/workflows/{workflow_id}/reason"
+            "next_action": f"POST /api/v1/workflows/{workflow_id}/screen"
         }
         
     except Exception as e:

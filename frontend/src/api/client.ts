@@ -55,6 +55,31 @@ export interface UploadResponse {
   }
 }
 
+export interface Conflict {
+  conflict_type: string
+  description: string
+  evidence: string[]
+  conflicting_entities: { entity_type: string; value: string; confidence: number; source_text: string; metadata?: Record<string, unknown> }[]
+}
+
+export interface PIIMatch {
+  pii_type: string
+  masked_token: string
+  original_value: string
+  start_pos?: number
+  end_pos?: number
+}
+
+export interface RedactionResponse {
+  workflow_id: string
+  state: string
+  pii_found: number
+  pii_by_type: Record<string, number>
+  pii_matches: PIIMatch[]
+  redaction_time?: number
+  redacted_text_preview?: string
+}
+
 export interface ReasoningResponse {
   workflow_id: string
   state: string
@@ -63,6 +88,8 @@ export interface ReasoningResponse {
   entities: { type: string; value: string; confidence: number }[]
   ambiguities_found: number
   ambiguities: { type: string; description: string; question: string; possible_interpretations?: string[] }[]
+  conflicts_found: number
+  conflicts: Conflict[]
   recommendations_generated: number
   recommendations: { id: string; action: string; description: string; confidence: number }[]
   reasoning_time: number
@@ -146,10 +173,13 @@ export const api = {
   },
 
   redact: (id: string) =>
-    request<{ workflow_id: string; state: string; pii_found: number; pii_by_type: Record<string, number> }>(
+    request<RedactionResponse>(
       `/workflows/${id}/redact`,
       { method: 'POST' },
     ),
+
+  getRedactionResults: (id: string) =>
+    request<RedactionResponse>(`/workflows/${id}/redact`, { method: 'GET' }),
 
   reason: (id: string) =>
     request<ReasoningResponse>(`/workflows/${id}/reason`, { method: 'POST' }),

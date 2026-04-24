@@ -6,6 +6,7 @@ import {
   type AuditEntry,
   type ReasoningResponse,
   type PolicyScreeningResponse,
+  type RedactionResponse,
 } from '@/api/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +17,6 @@ import ClarificationPanel from '@/components/ClarificationPanel'
 import PolicyReviewPanel from '@/components/PolicyReviewPanel'
 import RecommendationReviewPanel from '@/components/RecommendationReviewPanel'
 import DraftReviewPanel from '@/components/DraftReviewPanel'
-import ConflictResolutionPanel from '@/components/ConflictResolutionPanel'
 
 const ATTENTION_STATES = ['NeedsClarification', 'PolicyReviewRequired', 'ReadyForReview', 'DraftReady', 'Escalated']
 
@@ -26,6 +26,20 @@ function stateColor(state: string) {
   if (ATTENTION_STATES.includes(state)) return 'bg-yellow-100 text-yellow-800'
   if (state === 'Approved' || state === 'Executed') return 'bg-blue-100 text-blue-800'
   return 'bg-slate-100 text-slate-800'
+}
+
+function cleanDisplayText(text: string) {
+  return text
+    .replace(/\[NAME_(\d+)\]/g, 'Person $1')
+    .replace(/\[EMAIL_(\d+)\]/g, 'Email $1')
+    .replace(/\[PHONE_(\d+)\]/g, 'Phone $1')
+    .replace(/\[ADDRESS_(\d+)\]/g, 'Address $1')
+    .replace(/\[SSN_(\d+)\]/g, 'SSN $1')
+    .replace(/NAME(\d+)/g, 'Person $1')
+    .replace(/EMAIL(\d+)/g, 'Email $1')
+    .replace(/PHONE(\d+)/g, 'Phone $1')
+    .replace(/ADDRESS(\d+)/g, 'Address $1')
+    .replace(/SSN(\d+)/g, 'SSN $1')
 }
 
 function stateLabel(state: string) {
@@ -54,6 +68,7 @@ export default function WorkflowDetailPage() {
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null)
   const [policy, setPolicy] = useState<PolicyScreeningResponse | null>(null)
+  const [redaction, setRedaction] = useState<RedactionResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
@@ -91,6 +106,19 @@ export default function WorkflowDetailPage() {
       setWorkflow(wf)
       setAudit(auditData.entries)
       
+      // Auto-fetch redaction results if workflow has been through redaction
+      const redactionStates = ['Redacted', 'Parsed', 'NeedsClarification', 'PolicyReviewRequired', 'ReadyForReview', 'DraftReady', 'Approved', 'Executed', 'Completed']
+      if (redactionStates.includes(wf.state)) {
+        try {
+          const redactionResult = await api.getRedactionResults(workflowId)
+          if (!abortController.signal.aborted) {
+            setRedaction(redactionResult)
+          }
+        } catch (err) {
+          console.log('No redaction results available yet')
+        }
+      }
+
       // Auto-fetch reasoning results if workflow has been through reasoning
       const reasoningStates = ['Parsed', 'NeedsClarification', 'PolicyReviewRequired', 'ReadyForReview', 'DraftReady', 'Approved', 'Executed', 'Completed']
       if (reasoningStates.includes(wf.state)) {
@@ -149,7 +177,10 @@ export default function WorkflowDetailPage() {
     
     try {
       if (step === 'redact') {
-        await api.redact(workflowId)
+        const result = await api.redact(workflowId)
+        if (!isCancelled) {
+          setRedaction(result)
+        }
       } else if (step === 'reason') {
         // Show a message that this might take a while
         console.log('[Frontend] Running AI reasoning - this may take up to 2 minutes...')
@@ -335,20 +366,46 @@ export default function WorkflowDetailPage() {
           </CardContent>
         </Card>
 
+        {/* PII Redaction Results */}
+        {redaction && redaction.pii_found > 0 && (
+          <Card className="border-purple-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Badge className="bg-purple-100 text-purple-800">PII Redacted</Badge>
+                <span>{redaction.pii_found} item{redaction.pii_found !== 1 ? 's' : ''} detected & masked</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Summary by type */}
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(redaction.pii_by_type).map(([type, count]) => (
+                  <Badge key={type} variant="outline" className="text-sm">
+                    {type}: {count}
+                  </Badge>
+                ))}
+              </div>
+              {/* Detailed matches */}
+              <div className="space-y-1">
+                {redaction.pii_matches.map((m, i) => (
+                  <div key={i} className="flex items-center gap-3 text-sm py-1.5 px-3 bg-slate-50 rounded">
+                    <Badge variant="outline" className="shrink-0">{m.pii_type}</Badge>
+                    <span className="text-muted-foreground font-mono text-xs">{m.masked_token}</span>
+                    <span className="text-muted-foreground">&rarr;</span>
+                    <span className="truncate">{m.original_value}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Clarification Panel (NeedsClarification state) */}
         {workflow.state === 'NeedsClarification' && reasoning && (
-          <>
-            <ConflictResolutionPanel
-              workflowId={workflowId!}
-              reasoning={reasoning}
-              onActionComplete={load}
-            />
-            <ClarificationPanel
-              workflowId={workflowId!}
-              reasoning={reasoning}
-              onActionComplete={load}
-            />
-          </>
+          <ClarificationPanel
+            workflowId={workflowId!}
+            reasoning={reasoning}
+            onActionComplete={load}
+          />
         )}
 
         {/* Policy Review Panel (PolicyReviewRequired state) */}
@@ -407,7 +464,7 @@ export default function WorkflowDetailPage() {
                       <h3 className="text-sm font-semibold mb-2">Classification</h3>
                       <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
                         <Badge variant="outline">{reasoning.classification.document_type}</Badge>
-                        <span className="text-sm">{reasoning.classification.intent}</span>
+                        <span className="text-sm">{cleanDisplayText(reasoning.classification.intent)}</span>
                         {confidenceBadge(reasoning.classification.confidence)}
                       </div>
                     </div>
@@ -424,7 +481,7 @@ export default function WorkflowDetailPage() {
                           {reasoning.entities.map((e, i) => (
                             <div key={i} className="flex items-center gap-3 text-sm py-1.5 px-3 bg-slate-50 rounded">
                               <Badge variant="outline" className="shrink-0">{e.type}</Badge>
-                              <span className="truncate">{e.value}</span>
+                              <span className="truncate">{cleanDisplayText(e.value)}</span>
                               {confidenceBadge(e.confidence)}
                             </div>
                           ))}
@@ -441,9 +498,33 @@ export default function WorkflowDetailPage() {
                         <div className="space-y-2">
                           {reasoning.ambiguities.map((a, i) => (
                             <div key={i} className="border-l-4 border-yellow-400 pl-3 py-2 text-sm">
-                              <p className="font-medium text-yellow-800">{a.type}</p>
-                              <p>{a.description}</p>
-                              <p className="text-muted-foreground mt-1">Q: {a.question}</p>
+                              <p className="font-medium text-yellow-800">{cleanDisplayText(a.type.replace(/_/g, ' '))}</p>
+                              <p>{cleanDisplayText(a.description)}</p>
+                              <p className="text-muted-foreground mt-1">Q: {cleanDisplayText(a.question)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Conflicts */}
+                    {(reasoning.conflicts_found ?? 0) > 0 && (
+                      <div>
+                        <h3 className="text-sm font-semibold mb-2">
+                          Conflicts ({reasoning.conflicts_found})
+                        </h3>
+                        <div className="space-y-2">
+                          {reasoning.conflicts.map((c, i) => (
+                            <div key={i} className="border-l-4 border-orange-400 pl-3 py-2 text-sm">
+                              <p className="font-medium text-orange-800">{cleanDisplayText(c.conflict_type.replace(/_/g, ' '))}</p>
+                              <p>{cleanDisplayText(c.description)}</p>
+                              {c.evidence.length > 0 && (
+                                <div className="text-muted-foreground mt-1 space-y-0.5">
+                                  {c.evidence.map((ev, j) => (
+                                    <p key={j} className="italic">"{cleanDisplayText(ev)}"</p>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -463,7 +544,7 @@ export default function WorkflowDetailPage() {
                             <div key={r.id} className="flex items-start gap-3 text-sm border rounded-lg p-3">
                               <Badge variant="outline" className="shrink-0">{r.action}</Badge>
                               <div className="flex-1 min-w-0">
-                                <p className="truncate">{r.description}</p>
+                                <p className="truncate">{cleanDisplayText(r.description)}</p>
                               </div>
                               {confidenceBadge(r.confidence)}
                             </div>
