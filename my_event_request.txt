@@ -1,0 +1,20 @@
+Event Request
+
+I need to book a conference room for our team meeting.
+
+Details:
+- Date: May 15, 2024
+- Time: 2:00 PM - 4:00 PM
+- Attendees: 25 people
+- Budget: $3,000
+- Requirements: Projector, whiteboard, catering
+
+Contact:
+- Name: Sarah Johnson
+- Email: sarah.j@company.com
+- Phone: (555) 987-6543
+
+Please confirm availability.
+
+Thanks,
+Sarah
