@@ -1,0 +1,52 @@
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# AI/ML Orchestration
+langchain==0.1.4
+langgraph==0.0.20
+langchain-core==0.1.16
+
+# Z.AI GLM-4.5 SDK
+zhipuai==2.0.1
+
+# Data Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.25
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Document Processing
+pypdf2==3.0.1
+python-docx==1.1.0
+python-magic==0.4.27
+
+# PII Detection (optional enhancement)
+# presidio-analyzer==2.2.33
+# presidio-anonymizer==2.2.33
+
+# Google APIs
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.116.0
+
+# Utilities
+python-dotenv==1.0.0
+tenacity==8.2.3
+httpx==0.26.0
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+hypothesis==6.98.3
+pytest-cov==4.1.0
+
+# Development
+black==24.1.1
+ruff==0.1.14
+mypy==1.8.0

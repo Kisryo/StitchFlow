@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stitchflow-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      - DATABASE_URL=sqlite:///./stitchflow.db
+      
+      # GLM API (Z.AI)
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY}
+      - GLM_MODEL=${GLM_MODEL:-ilmu-glm-5.1}
+      - GLM_BASE_URL=${GLM_BASE_URL:-https://api.ilmu.ai/anthropic}
+      
+      # Google APIs (optional)
+      - GOOGLE_SHEETS_CREDENTIALS_FILE=${GOOGLE_SHEETS_CREDENTIALS_FILE:-}
+      - GMAIL_CREDENTIALS_FILE=${GMAIL_CREDENTIALS_FILE:-}
+      
+      # Application
+      - UPLOAD_DIR=./uploads
+      - MAX_FILE_SIZE_MB=50
+      - ALLOWED_FILE_TYPES=pdf,docx,txt,eml
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/stitchflow.db:/app/stitchflow.db
+      - ./backend/alembic:/app/alembic
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend (optional - if you have React frontend)
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: stitchflow-frontend
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:8000
+  #   depends_on:
+  #     - backend
+  #   restart: unless-stopped
+
+volumes:
+  uploads:
+  database:
+
+networks:
+  default:
+    name: stitchflow-network
