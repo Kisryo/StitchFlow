@@ -378,6 +378,20 @@ export default function WorkflowDetailPage() {
                   {actionLoading ? 'Executing Tasks...' : 'Execute Tasks'}
                 </Button>
               )}
+              {(workflow.state === 'Completed' || workflow.state === 'Executed' || workflow.state === 'Escalated') && (
+                <>
+                  <a href={api.getDownloadUrl(workflowId!, 'pdf')} download>
+                    <Button variant="default">
+                      📄 Download PDF Report
+                    </Button>
+                  </a>
+                  <a href={api.getDownloadUrl(workflowId!, 'json')} download>
+                    <Button variant="outline">
+                      📋 Download JSON
+                    </Button>
+                  </a>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

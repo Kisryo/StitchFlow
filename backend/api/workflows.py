@@ -766,7 +766,9 @@ async def execute_approved_tasks(
         execution_time = _time.time() - start_time
 
         # Save document to workflow metadata
-        if doc_result.get("document") and workflow.workflow_metadata:
+        if doc_result.get("document"):
+            if not workflow.workflow_metadata:
+                workflow.workflow_metadata = {}
             workflow.workflow_metadata["generated_document"] = doc_result["document"]
             db.commit()
 
