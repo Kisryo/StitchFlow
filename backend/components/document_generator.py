@@ -190,8 +190,7 @@ def generate_pdf(document: Dict[str, Any]) -> bytes:
         pdf.cell(0, 8, text="Key Findings", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 11)
         for finding in findings:
-            pdf.cell(6, 6, text=chr(8226))
-            pdf.multi_cell(0, 6, text=f" {finding}")
+            pdf.cell(0, 6, text=f"- {finding}", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
     # Issues Resolved
@@ -201,8 +200,7 @@ def generate_pdf(document: Dict[str, Any]) -> bytes:
         pdf.cell(0, 8, text="Issues Resolved", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 11)
         for issue in issues:
-            pdf.cell(6, 6, text=chr(8226))
-            pdf.multi_cell(0, 6, text=f" {issue}")
+            pdf.cell(0, 6, text=f"- {issue}", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
     # Recommendations
@@ -212,8 +210,7 @@ def generate_pdf(document: Dict[str, Any]) -> bytes:
         pdf.cell(0, 8, text="Recommendations", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 11)
         for rec in recs:
-            pdf.cell(6, 6, text=chr(8226))
-            pdf.multi_cell(0, 6, text=f" {rec}")
+            pdf.cell(0, 6, text=f"- {rec}", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
     # Draft Email
@@ -235,6 +232,6 @@ def generate_pdf(document: Dict[str, Any]) -> bytes:
         pdf.cell(0, 8, text="Next Steps", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 11)
         for i, step in enumerate(steps, 1):
-            pdf.multi_cell(0, 6, text=f"{i}. {step}")
+            pdf.cell(0, 6, text=f"{i}. {step}", new_x="LMARGIN", new_y="NEXT")
 
     return pdf.output()
