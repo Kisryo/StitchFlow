@@ -1,6 +1,8 @@
 # StitchFlow V2
 
 AI-powered Human-in-the-Loop (HITL) decision-support engine for document processing workflow automation.
+## Pitching Video to Demonstrate the Product
+[Click here to access to the Pitching Video](https://drive.google.com/drive/folders/11-NHdqk2eGisvYhOpY2w3gyu4oAPf8G_?usp=drive_link)
 
 ## What It Does
 
@@ -204,6 +206,7 @@ cd frontend
 npm install
 
 # Start the dev server
+npm run dev
 ```
 
 The frontend will be running at **http://localhost:5173**
@@ -243,7 +246,7 @@ docker-compose down
 curl http://localhost:8000/health
 ```
 
-#### Create a workflow and upload a document
+#### Create a workflow and upload a document (Using doucment sample from sample-for-testing folder)
 
 ```bash
 # Create a workflow
@@ -263,7 +266,7 @@ curl -X POST http://localhost:8000/api/v1/workflows/{workflow_id}/run
 
 1. Open http://localhost:5173 in your browser
 2. Click "New Workflow" on the dashboard
-3. Enter a name and upload a document
+3. Enter a name and upload a document 
 4. The pipeline will run step-by-step (ingest -> redact -> reason -> screen)
 5. Review AI recommendations and approve/reject as needed
 
