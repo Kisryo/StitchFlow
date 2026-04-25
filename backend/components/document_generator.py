@@ -118,6 +118,7 @@ Respond with JSON in this exact format:
 
         generation_time = time.time() - start_time
         print(f"[Document Generator] Summary document generated in {generation_time:.2f}s")
+        print(f"[Document Generator] Result keys: {list(result.keys())}")
 
         return {
             "success": True,
@@ -128,22 +129,27 @@ Respond with JSON in this exact format:
     except Exception as e:
         generation_time = time.time() - start_time
         print(f"[Document Generator] Failed to generate document: {str(e)}")
+        print(f"[Document Generator] Returning fallback document")
+
+        fallback_doc = {
+            "title": f"Analysis Summary - {classification.document_type}",
+            "executive_summary": f"Document classified as {classification.document_type} with intent: {classification.intent}. {len(entities)} entities extracted, {len(recommendations)} recommendations generated.",
+            "classification": f"{classification.document_type} - {classification.intent}",
+            "key_findings": [f"{e.entity_type}: {e.value}" for e in entities[:8]],
+            "issues_resolved": [a.description for a in ambiguities[:5]],
+            "recommendations_summary": [f"[{r.action_type}] {r.description}" for r in recommendations[:5]],
+            "draft_email": {
+                "subject": f"Document Analysis: {classification.document_type}",
+                "body": f"Analysis of {classification.document_type} document completed. {len(entities)} entities extracted, {len(recommendations)} recommendations generated. Please review the full analysis for details.",
+            },
+            "next_steps": ["Review the full analysis", "Approve or modify recommendations", "Proceed with execution"],
+        }
+        
+        print(f"[Document Generator] Fallback document keys: {list(fallback_doc.keys())}")
 
         return {
             "success": False,
-            "document": {
-                "title": f"Analysis Summary - {classification.document_type}",
-                "executive_summary": f"Document classified as {classification.document_type} with intent: {classification.intent}. {len(entities)} entities extracted, {len(recommendations)} recommendations generated.",
-                "classification": f"{classification.document_type} - {classification.intent}",
-                "key_findings": [f"{e.entity_type}: {e.value}" for e in entities[:8]],
-                "issues_resolved": [a.description for a in ambiguities[:5]],
-                "recommendations_summary": [f"[{r.action_type}] {r.description}" for r in recommendations[:5]],
-                "draft_email": {
-                    "subject": f"Document Analysis: {classification.document_type}",
-                    "body": f"Analysis of {classification.document_type} document completed. {len(entities)} entities extracted, {len(recommendations)} recommendations generated. Please review the full analysis for details.",
-                },
-                "next_steps": ["Review the full analysis", "Approve or modify recommendations", "Proceed with execution"],
-            },
+            "document": fallback_doc,
             "generation_time": generation_time,
             "error": str(e),
         }
@@ -163,64 +169,70 @@ def generate_pdf(document: Dict[str, Any]) -> bytes:
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
 
+    LEFT_MARGIN = pdf.l_margin
+    INDENT = 8  # indentation for list item continuation lines
+    LIST_WIDTH = pdf.w - LEFT_MARGIN - pdf.r_margin - INDENT
+
+    def write_bullet(text: str, bullet: str = "-"):
+        pdf.set_x(LEFT_MARGIN)
+        pdf.cell(INDENT, 6, text=f"  {bullet} ")
+        pdf.multi_cell(LIST_WIDTH, 6, text=text)
+
+    def write_numbered(idx: int, text: str):
+        pdf.set_x(LEFT_MARGIN)
+        pdf.cell(INDENT, 6, text=f"  {idx}. ")
+        pdf.multi_cell(LIST_WIDTH, 6, text=text)
+
+    def section_heading(title: str):
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_x(LEFT_MARGIN)
+        pdf.cell(0, 8, text=title, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 11)
+
     # Title
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.cell(0, 12, text=document.get("title", "Analysis Report"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.multi_cell(0, 10, text=document.get("title", "Analysis Report"))
     pdf.ln(4)
 
     # Executive Summary
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 8, text="Executive Summary", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 11)
+    section_heading("Executive Summary")
     pdf.multi_cell(0, 6, text=document.get("executive_summary", ""))
     pdf.ln(4)
 
     # Classification
     if document.get("classification"):
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, text="Classification", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 11)
+        section_heading("Classification")
         pdf.multi_cell(0, 6, text=document["classification"])
         pdf.ln(4)
 
     # Key Findings
     findings = document.get("key_findings", [])
     if findings:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, text="Key Findings", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 11)
+        section_heading("Key Findings")
         for finding in findings:
-            pdf.cell(6, 6, text=chr(8226))
-            pdf.multi_cell(0, 6, text=f" {finding}")
+            write_bullet(finding)
         pdf.ln(4)
 
     # Issues Resolved
     issues = document.get("issues_resolved", [])
     if issues:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, text="Issues Resolved", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 11)
+        section_heading("Issues Resolved")
         for issue in issues:
-            pdf.cell(6, 6, text=chr(8226))
-            pdf.multi_cell(0, 6, text=f" {issue}")
+            write_bullet(issue)
         pdf.ln(4)
 
     # Recommendations
     recs = document.get("recommendations_summary", [])
     if recs:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, text="Recommendations", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 11)
+        section_heading("Recommendations")
         for rec in recs:
-            pdf.cell(6, 6, text=chr(8226))
-            pdf.multi_cell(0, 6, text=f" {rec}")
+            write_bullet(rec)
         pdf.ln(4)
 
     # Draft Email
     draft = document.get("draft_email")
     if draft:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, text="Draft Email", new_x="LMARGIN", new_y="NEXT")
+        section_heading("Draft Email")
         pdf.set_font("Helvetica", "B", 11)
         pdf.multi_cell(0, 6, text=f"Subject: {draft.get('subject', '')}")
         pdf.set_font("Helvetica", "", 11)
@@ -231,10 +243,11 @@ def generate_pdf(document: Dict[str, Any]) -> bytes:
     # Next Steps
     steps = document.get("next_steps", [])
     if steps:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, text="Next Steps", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 11)
+        section_heading("Next Steps")
         for i, step in enumerate(steps, 1):
-            pdf.multi_cell(0, 6, text=f"{i}. {step}")
+            write_numbered(i, step)
 
-    return pdf.output()
+    # Get PDF as bytes — output() with no dest returns bytes
+    pdf_bytes = bytes(pdf.output())
+    print(f"[PDF Generator] Generated PDF with {len(pdf_bytes)} bytes")
+    return pdf_bytes

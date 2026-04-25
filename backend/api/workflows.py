@@ -765,10 +765,22 @@ async def execute_approved_tasks(
 
         execution_time = _time.time() - start_time
 
-        # Save document to workflow metadata
-        if doc_result.get("document") and workflow.workflow_metadata:
+        print(f"[API] Document generation result: success={doc_result.get('success')}, has_document={'document' in doc_result}")
+        if 'document' in doc_result:
+            print(f"[API] Generated document keys: {list(doc_result['document'].keys())}")
+            print(f"[API] Document title: {doc_result['document'].get('title', 'N/A')}")
+
+        # Save generated document to workflow metadata
+        if doc_result.get("document"):
+            if workflow.workflow_metadata is None:
+                workflow.workflow_metadata = {}
             workflow.workflow_metadata["generated_document"] = doc_result["document"]
-            db.commit()
+            # Flag JSON column as mutated so SQLAlchemy detects the change
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(workflow, "workflow_metadata")
+            print(f"[API] Document saved to metadata, keys: {list(doc_result['document'].keys())}")
+        else:
+            print(f"[API] No document generated for workflow {workflow_id}")
 
         # Build one task result per approved recommendation
         all_results = []
@@ -829,6 +841,8 @@ async def execute_approved_tasks(
         else:
             workflow.state = WorkflowState.ESCALATED.value
         workflow.updated_at = datetime.utcnow()
+
+        # Commit document + state changes together
         db.commit()
         db.refresh(workflow)
 
@@ -878,14 +892,22 @@ async def get_execution_results(
     db: Session = Depends(get_db)
 ):
     """Get the generated document from task execution."""
+    print(f"[API] GET /execute for workflow {workflow_id}")
     workflow = get_workflow(db, workflow_id)
     if not workflow:
+        print(f"[API] Workflow {workflow_id} not found")
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
     metadata = workflow.workflow_metadata or {}
+    print(f"[API] Workflow metadata keys: {list(metadata.keys()) if metadata else 'None'}")
     generated_document = metadata.get("generated_document")
+    
+    print(f"[API] Generated document present: {generated_document is not None}")
+    if generated_document:
+        print(f"[API] Document keys: {list(generated_document.keys()) if isinstance(generated_document, dict) else type(generated_document)}")
 
     if not generated_document:
+        print(f"[API] No execution results found for workflow {workflow_id}")
         raise HTTPException(status_code=404, detail="No execution results found for this workflow")
 
     return {
@@ -902,14 +924,22 @@ async def download_report(
     db: Session = Depends(get_db)
 ):
     """Download the generated document as PDF or JSON."""
+    print(f"[API] GET /download for workflow {workflow_id}, format={format}")
     workflow = get_workflow(db, workflow_id)
     if not workflow:
+        print(f"[API] Workflow {workflow_id} not found")
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
     metadata = workflow.workflow_metadata or {}
+    print(f"[API] Workflow metadata keys: {list(metadata.keys()) if metadata else 'None'}")
     generated_document = metadata.get("generated_document")
+    
+    print(f"[API] Generated document present: {generated_document is not None}")
+    if generated_document:
+        print(f"[API] Document keys: {list(generated_document.keys()) if isinstance(generated_document, dict) else type(generated_document)}")
 
     if not generated_document:
+        print(f"[API] No generated document found for workflow {workflow_id}")
         raise HTTPException(status_code=404, detail="No generated document found for this workflow")
 
     if format == "json":

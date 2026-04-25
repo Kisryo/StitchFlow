@@ -239,6 +239,26 @@ export default function WorkflowDetailPage() {
     }
   }
 
+  async function handleDownload(format: 'pdf' | 'json') {
+    if (!workflowId) return
+    try {
+      const url = api.getDownloadUrl(workflowId, format)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Download failed: ${res.statusText}`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = `report_${workflowId.slice(0, 8)}.${format}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Download failed')
+    }
+  }
+
   async function handleUpload(file: File) {
     if (!workflowId) return
     setUploading(true)
@@ -463,22 +483,12 @@ export default function WorkflowDetailPage() {
                   <span>{execDocument.title}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <a
-                    href={api.getDownloadUrl(workflowId!, 'pdf')}
-                    download
-                  >
-                    <Button variant="outline" size="sm">
-                      Download PDF
-                    </Button>
-                  </a>
-                  <a
-                    href={api.getDownloadUrl(workflowId!, 'json')}
-                    download
-                  >
-                    <Button variant="outline" size="sm">
-                      Download JSON
-                    </Button>
-                  </a>
+                  <Button variant="outline" size="sm" onClick={() => handleDownload('pdf')}>
+                    Download PDF
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => handleDownload('json')}>
+                    Download JSON
+                  </Button>
                 </div>
               </CardTitle>
             </CardHeader>

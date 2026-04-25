@@ -14,6 +14,11 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 
+def empty_dict():
+    """Return empty dict for mutable default."""
+    return {}
+
+
 class WorkflowDB(Base):
     """
     Workflows table - stores workflow instances.
@@ -32,10 +37,10 @@ class WorkflowDB(Base):
     redacted_text = Column(Text, nullable=True)
     
     # PII redaction mapping (stored as JSON)
-    token_map = Column(JSON, nullable=True, default={})
+    token_map = Column(JSON, nullable=True, default=empty_dict)
     
     # Additional metadata (stored as JSON)
-    workflow_metadata = Column(JSON, nullable=True, default={})
+    workflow_metadata = Column(JSON, nullable=True, default=empty_dict)
 
 
 class ReasoningResultDB(Base):
