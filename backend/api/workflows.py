@@ -4,6 +4,7 @@ Workflow API endpoints.
 Handles workflow creation, file uploads, and workflow management.
 """
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query, Body
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -692,7 +693,6 @@ async def execute_approved_tasks(
     """
     from database.models import ReasoningResultDB
     from models import ReasoningResult, Classification, Entity, Ambiguity, Conflict, Recommendation as RecModel
-    from components.task_orchestrator import orchestrate_tasks
 
     # Verify workflow exists
     workflow = get_workflow(db, workflow_id)
@@ -744,9 +744,84 @@ async def execute_approved_tasks(
     if not recommendations:
         raise HTTPException(status_code=400, detail="No approved recommendations to execute.")
 
-    # Execute tasks
+    # Execute tasks — generate ONE document for the whole workflow
     try:
-        result = await orchestrate_tasks(workflow_id, recommendations, db)
+        import time as _time
+        from components.document_generator import generate_summary_document
+        from models import TaskResult, OrchestrationResult
+
+        start_time = _time.time()
+
+        # Single GLM call with all reasoning data
+        doc_result = await generate_summary_document(
+            workflow_id=workflow_id,
+            classification=reasoning_result.classification,
+            entities=reasoning_result.entities,
+            ambiguities=reasoning_result.ambiguities,
+            conflicts=reasoning_result.conflicts,
+            recommendations=reasoning_result.recommendations,
+            clarifications=(workflow.workflow_metadata or {}).get("clarifications"),
+        )
+
+        execution_time = _time.time() - start_time
+
+        # Save document to workflow metadata
+        if doc_result.get("document") and workflow.workflow_metadata:
+            workflow.workflow_metadata["generated_document"] = doc_result["document"]
+            db.commit()
+
+        # Build one task result per approved recommendation
+        all_results = []
+        failed_tasks = []
+        for rec in recommendations:
+            if doc_result["success"]:
+                all_results.append(TaskResult(
+                    task_id=rec.recommendation_id,
+                    task_type="generate_summary",
+                    success=True,
+                    result_data={
+                        "title": doc_result["document"].get("title", ""),
+                        "executive_summary": doc_result["document"].get("executive_summary", ""),
+                        "generation_time": doc_result["generation_time"],
+                    },
+                    error=None,
+                    execution_time=execution_time / len(recommendations),
+                    retry_count=0,
+                ))
+            else:
+                all_results.append(TaskResult(
+                    task_id=rec.recommendation_id,
+                    task_type="generate_summary",
+                    success=False,
+                    result_data={},
+                    error=doc_result.get("error", "Document generation failed"),
+                    execution_time=execution_time / len(recommendations),
+                    retry_count=0,
+                ))
+                failed_tasks.append(rec.recommendation_id)
+
+        overall_success = len(failed_tasks) == 0
+
+        result = OrchestrationResult(
+            workflow_id=workflow_id,
+            task_results=all_results,
+            overall_success=overall_success,
+            failed_tasks=failed_tasks,
+        )
+
+        log_audit_entry(
+            db=db,
+            workflow_id=workflow_id,
+            action_type="task_orchestration",
+            actor="system",
+            details={
+                "total_tasks": len(recommendations),
+                "successful_tasks": len(all_results) - len(failed_tasks),
+                "failed_tasks": len(failed_tasks),
+                "failed_task_ids": failed_tasks,
+                "single_document_generation": True,
+            }
+        )
 
         # Update workflow state based on results
         if result.overall_success:
@@ -818,6 +893,41 @@ async def get_execution_results(
         "state": workflow.state,
         "document": generated_document,
     }
+
+
+@router.get("/{workflow_id}/download")
+async def download_report(
+    workflow_id: str,
+    format: str = Query("pdf", regex="^(pdf|json)$"),
+    db: Session = Depends(get_db)
+):
+    """Download the generated document as PDF or JSON."""
+    workflow = get_workflow(db, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+
+    metadata = workflow.workflow_metadata or {}
+    generated_document = metadata.get("generated_document")
+
+    if not generated_document:
+        raise HTTPException(status_code=404, detail="No generated document found for this workflow")
+
+    if format == "json":
+        import json
+        content = json.dumps(generated_document, indent=2, ensure_ascii=False).encode("utf-8")
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="report_{workflow_id[:8]}.json"'},
+        )
+
+    from components.document_generator import generate_pdf
+    pdf_bytes = generate_pdf(generated_document)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="report_{workflow_id[:8]}.pdf"'},
+    )
 
 
 # ============================================================================
@@ -1273,7 +1383,7 @@ async def get_dashboard_statistics_deprecated(
         completion_rate = (completed_count / total_workflows * 100) if total_workflows > 0 else 0
         
         # Calculate failure rate
-        failed_count = workflows_by_state.get(WorkflowState.FAILED.value, 0)
+        failed_count = workflows_by_state.get(WorkflowState.FAILED.value, 0) + workflows_by_state.get(WorkflowState.ESCALATED.value, 0)
         failure_rate = (failed_count / total_workflows * 100) if total_workflows > 0 else 0
         
         return {

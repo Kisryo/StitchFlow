@@ -93,12 +93,12 @@ async def execute_generate_summary(
 
         execution_time = time.time() - start_time
 
-        if result["success"]:
-            # Store generated document in workflow metadata
-            if workflow and workflow.workflow_metadata:
-                workflow.workflow_metadata["generated_document"] = result["document"]
-                db.commit()
+        # Always store document if available (even on failure, fallback doc exists)
+        if result.get("document") and workflow and workflow.workflow_metadata:
+            workflow.workflow_metadata["generated_document"] = result["document"]
+            db.commit()
 
+        if result["success"]:
             return TaskResult(
                 task_id=recommendation.recommendation_id,
                 task_type="generate_summary",

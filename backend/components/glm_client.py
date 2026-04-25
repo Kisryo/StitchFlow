@@ -126,7 +126,7 @@ class GLMClient:
         
         # Make request with longer timeout (120 seconds for complex reasoning)
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response = requests.post(url, headers=headers, json=payload, timeout=180)
             response.raise_for_status()
         except requests.exceptions.Timeout:
             print(f"[GLM Client] Request timed out after 120 seconds")

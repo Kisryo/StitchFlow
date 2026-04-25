@@ -279,4 +279,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ workflow_id_a: workflowIdA, workflow_id_b: workflowIdB }),
     }),
+
+  getDownloadUrl: (id: string, format: 'pdf' | 'json' = 'pdf') =>
+    `${API_BASE}/workflows/${id}/download?format=${format}`,
 }

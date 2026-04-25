@@ -116,7 +116,7 @@ async def get_dashboard_statistics(db: Session = Depends(get_db)):
         completion_rate = (completed_count / total_workflows * 100) if total_workflows > 0 else 0
         
         # Calculate failure rate
-        failed_count = workflows_by_state.get(WorkflowState.FAILED.value, 0)
+        failed_count = workflows_by_state.get(WorkflowState.FAILED.value, 0) + workflows_by_state.get(WorkflowState.ESCALATED.value, 0)
         failure_rate = (failed_count / total_workflows * 100) if total_workflows > 0 else 0
         
         return {

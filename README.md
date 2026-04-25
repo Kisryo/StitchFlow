@@ -128,7 +128,7 @@ UMHack/
 
 ### Prerequisites
 
-- **Python 3.11+**
+- **Python 3.11 or 3.12** (Python 3.13+ and pre-release versions are **not supported** — `pydantic_core` lacks compiled C extensions for them)
 - **Node.js 18+** (for frontend)
 - **Z.AI API key** - Get one from [api.ilmu.ai](https://api.ilmu.ai) 
 - **Docker** (optional, for containerized deployment)
@@ -156,6 +156,9 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# A new release of pip is available
+To update, run: python.exe -m pip install --upgrade pip
 
 # Copy the example env file and configure it
 cp .env.example .env
@@ -271,6 +274,7 @@ curl -X POST http://localhost:8000/api/v1/workflows/{workflow_id}/run
 
 | Issue | Fix |
 |-------|-----|
+| `No module named 'pydantic_core._pydantic_core'` | You're using an unsupported Python version (3.13+ or pre-release 3.14). Pydantic's C extensions don't have compiled wheels for these versions yet. **Install Python 3.11 or 3.12**, then recreate the venv: `python3.12 -m venv venv` and reinstall dependencies |
 | `ModuleNotFoundError` | Make sure you activated the virtual environment and installed dependencies |
 | `ZHIPU_API_KEY` error | Set your API key in `backend/.env` |
 | Database errors | Run `alembic upgrade head` to create tables |

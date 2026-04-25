@@ -121,8 +121,8 @@ export default function WorkflowDetailPage() {
         }
       }
 
-      // Auto-fetch execution results if workflow is completed
-      if (wf.state === 'Completed' || wf.state === 'Executed') {
+      // Auto-fetch execution results if workflow is completed or escalated
+      if (wf.state === 'Completed' || wf.state === 'Executed' || wf.state === 'Escalated') {
         try {
           const execResult = await api.getExecutionResults(workflowId)
           if (!abortController.signal.aborted) {
@@ -451,13 +451,35 @@ export default function WorkflowDetailPage() {
           />
         )}
 
-        {/* Execution Results (Completed/Executed state) */}
+        {/* Execution Results (Completed/Executed/Escalated state) */}
         {execDocument && (
-          <Card className="border-green-300">
+          <Card className={workflow.state === 'Escalated' ? 'border-red-300' : 'border-green-300'}>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Badge className="bg-green-100 text-green-800">Execution Complete</Badge>
-                <span>{execDocument.title}</span>
+              <CardTitle className="text-base flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge className={workflow.state === 'Escalated' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}>
+                    {workflow.state === 'Escalated' ? 'Execution Failed — Fallback Document' : 'Execution Complete'}
+                  </Badge>
+                  <span>{execDocument.title}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={api.getDownloadUrl(workflowId!, 'pdf')}
+                    download
+                  >
+                    <Button variant="outline" size="sm">
+                      Download PDF
+                    </Button>
+                  </a>
+                  <a
+                    href={api.getDownloadUrl(workflowId!, 'json')}
+                    download
+                  >
+                    <Button variant="outline" size="sm">
+                      Download JSON
+                    </Button>
+                  </a>
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
